@@ -1,0 +1,285 @@
+<!doctype html> 
+<html lang="en"> 
+<head> 
+	<meta charset="UTF-8" />
+    <title>Bubble Dragon</title>
+	<script type="text/javascript" src="js/phaser.min.js"></script>
+    <style type="text/css">
+        body {
+            margin: 0;
+        }
+    </style>
+</head>
+<body>
+
+<script type="text/javascript">
+
+
+var game = new Phaser.Game(800, 600, Phaser.AUTO, '', { preload: preload, create: create, update: update });
+
+    
+function preload() {
+    
+    game.load.audio('boden', ['assets/audio/bg.mp3']);
+    game.load.image('sky', 'assets/sky.png');
+    game.load.image('ground', 'assets/platform.png');
+    game.load.image('bubble', 'assets/bubble.png');
+    game.load.spritesheet('ghost', 'assets/enemy1.png', 38, 32,5);
+    game.load.spritesheet('dragon', 'assets/bubble_dragon(anim).png', 104, 104,2);
+
+}
+    
+var bgMusic;
+var player;
+var platforms;
+var cursors;
+var bubbles;
+var score = 0;
+var scoreText;
+var bullets;
+var fireRate = 1000;
+var nextFire = 0;
+var shootDirectionX = 150;
+var spaceKey;
+    
+var ghosts;
+var anim;
+    
+function create() {
+
+    //bgmusic
+    music = game.add.audio('boden');
+    music.play();
+    
+    //  We're going to be using physics, so enable the Arcade Physics system
+    game.physics.startSystem(Phaser.Physics.ARCADE);
+
+    //  A simple background for our game
+    game.add.sprite(0, 0, 'sky');
+
+    //  The platforms group contains the ground and the 2 ledges we can jump on
+    platforms = game.add.group();
+
+    //  We will enable physics for any object that is created in this group
+    platforms.enableBody = true;
+
+    // Here we create the ground.
+    var ground = platforms.create(0, game.world.height - 64, 'ground');
+
+    //  Scale it to fit the width of the game (the original sprite is 400x32 in size)
+    ground.scale.setTo(2, 2);
+
+    //  This stops it from falling away when you jump on it
+    ground.body.immovable = true;
+
+    //  Now let's create two ledges
+    var ledge = platforms.create(400, 400, 'ground');
+    ledge.body.immovable = true;
+
+    ledge = platforms.create(-150, 250, 'ground');
+    ledge.body.immovable = true;
+
+    // The player and its settings
+    player = game.add.sprite(104, game.world.height - 150, 'dragon');
+    player.scale.setTo(0.5, 0.5);
+    //  We need to enable physics on the player
+    game.physics.arcade.enable(player);
+
+    //  Player physics properties. Give the little guy a slight bounce.
+    player.body.bounce.y = 0;
+    player.body.gravity.y = 500;
+    player.body.collideWorldBounds = true;
+
+    //  Our two animations, walking left and right.
+    player.animations.add('left', [0], 10, true);
+    player.animations.add('right', [1], 10, true);
+
+    //  Finally some stars to collect
+    bubbles = game.add.group();
+    ghosts = game.add.group();
+    
+    //  We will enable physics for any star that is created in this group
+    bubbles.enableBody = true;
+    ghosts.enableBody = true;
+    
+    //detect spacebar input
+    this.spaceKey = game.input.keyboard.addKey(Phaser.Keyboard.SPACEBAR);
+    game.input.keyboard.addKeyCapture([Phaser.Keyboard.SPACEBAR ]);
+    
+    //  Here we'll create 12 of them evenly spaced apart
+    for (var i = 0; i < 12; i++)
+    {
+        //  Create a star inside of the 'stars' group
+        var bubble = bubbles.create(i * 70, 0, 'bubble');
+
+        //  Let gravity do its thing
+        bubble.body.gravity.y = 300;
+
+        //  This just gives each star a slightly random bounce value
+        bubble.body.bounce.y = 0.7 + Math.random() * 0.2;
+    }
+
+    //  The score
+    scoreText = game.add.text(16, 16, 'score: 0', { fontSize: '32px', fill: '#000' });
+    
+    //  Our controls.
+    cursors = game.input.keyboard.createCursorKeys();
+    
+    //shooting
+    bullets = game.add.group();
+    bullets.enableBody = true;
+    bullets.physicsBodyType = Phaser.Physics.ARCADE;
+
+    bullets.createMultiple(50, 'bubble');
+    bullets.setAll('checkWorldBounds', true);
+    bullets.setAll('outOfBoundsKill', true);
+    
+    //ghost
+    ghost = game.add.sprite(0, 0, 'ghost', 5);
+    //ghost.enableBody = true;
+    //ghost.physicsBodyType = Phaser.Physics.ARCADE;
+    game.physics.arcade.enable(ghost);
+    ghost.scale.set(2,2);
+    ghost.smoothed = false;
+    
+    anim = ghost.animations.add('walk');
+
+    anim.onStart.add(animationStarted, this);
+    anim.onLoop.add(animationLooped, this);
+    anim.onComplete.add(animationStopped, this);
+
+    anim.play(10, true);
+    
+}
+
+function update() {
+
+    //  Collide the player and the stars with the platforms
+    game.physics.arcade.collide(player, platforms);
+    game.physics.arcade.collide(bubbles, platforms);
+    game.physics.arcade.collide(player, ghost);
+    //  Checks to see if the player overlaps with any of the stars, if he does call the collectStar function
+    game.physics.arcade.overlap(player, bubbles, collectBubble, null, this);
+    game.physics.arcade.moveToXY(ghost, player.x, player.y, 100);
+
+    
+    //  Reset the players velocity (movement)
+    player.body.velocity.x = 0;
+
+    if (cursors.left.isDown)
+    {
+        //  Move to the left
+        player.body.velocity.x = -150;
+        player.animations.play('left');
+        // update the shooting direction
+        shootDirectionX = -150;
+    }
+    else if (cursors.right.isDown)
+    {
+        //  Move to the right
+        player.body.velocity.x = 150;
+        player.animations.play('right');
+        // update the shooting direction
+        shootDirectionX = 150;
+    }
+    else
+    {
+        //  Stand still
+        player.animations.stop();
+
+    }
+    
+    bullets.forEachAlive(function(item) {
+        game.physics.arcade.overlap(item, ghost, collectEnemy, null, this);
+        game.physics.arcade.overlap(player, item, collideBullet, null, this);
+        if( this.math.fuzzyEqual(item.x,item.endPointX,5) && this.math.fuzzyEqual(item.y,item.endPointY,5) ){
+            //item.kill();
+
+            game.physics.arcade.moveToXY(item, item.x, item.y - 150, 100);
+        }             
+    },this);
+    
+    //  Allow the player to jump if they are touching the ground.
+    if (cursors.up.isDown && player.body.touching.down)
+    {
+        player.body.velocity.y = -350;
+    }
+
+    if (this.spaceKey.isDown){
+        shootBubble();
+    }
+    
+}
+
+// counting the score
+function collectBubble (player, bubble) {
+    // Removes the bubble from the screen
+    bubble.kill();
+    //  Add and update the score
+    score += 10;
+    scoreText.text = 'Score: ' + score;
+}
+
+// counting the score
+function collectEnemy (bullet, ghost) {
+    // Removes the bubble from the screen
+    bullet.kill();
+    ghost.kill();
+    //  Add and update the score
+    score += 10;
+    scoreText.text = 'Score: ' + score;
+}
+    
+function collideBullet (player, bullet) {
+    // Removes the bubble from the screen
+    // bullet.kill();
+    if (player.y < bullet.y - 5 && player.x < bullet.x + 20 && player.x > bullet.x - 20){
+        game.physics.arcade.collide(bullet, player);
+        bullet.body.immovable = true;
+    } else if (player.y > bullet.y + 5 && player.x < bullet.x + 20 && player.x > bullet.x - 20){
+        bullet.kill();
+    }
+}
+
+function animationStarted(sprite, animation) {
+
+}
+
+function animationLooped(sprite, animation) {
+
+    if (animation.loopCount === 1)
+    {
+        //loopText = game.add.text(32, 64, 'Animation looped', { fill: 'white' });
+    }
+    else
+    {
+        //loopText.text = 'Animation looped x2';
+        //animation.loop = false;
+    }
+
+}
+
+function animationStopped(sprite, animation) {
+
+}
+    
+function shootBubble() {
+
+    if (game.time.now > nextFire && bullets.countDead() > 0)
+    {
+        nextFire = game.time.now + fireRate;
+        
+        var bullet = bullets.getFirstDead();
+        bullet.endPointX = player.x + shootDirectionX;
+        bullet.endPointY = player.y;
+        bullet.reset(player.x, player.y);
+
+        game.physics.arcade.moveToXY(bullet, player.x + shootDirectionX, player.y, 300);
+    }
+
+}
+    
+</script>
+
+</body>
+</html>
